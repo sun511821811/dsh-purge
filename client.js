@@ -8,7 +8,7 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 		const { useState, useEffect, useCallback, useRef, Component } = react;
 
 		const name = "dsh-purge";
-		const inject = ["slots", "locale"];
+		const inject = ["slots", "locale", "uiConversation"];
 		const NS = "settings.dsh-purge";
 		let translate = (key) => key;
 		function useT() {
@@ -420,7 +420,11 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"patch.69": "deepseek-flash 保持官方 in-history",
 			"patch.72": "Messages 的 system 用当前系统提示",
 			"patch.73": "极简 bash 去掉误留的镜像说明",
-			"patch.74": "首发前先挂默认提示词",
+			"patch.74": "启动/应用把默认提示词写入 prompt-inject.md",
+			"patch.85": "prompt() 的 steer 仍走插话，不压成 followup",
+			"patch.86": "队列插话走 steer；公共 steer() 保持下一步",
+			"patch.87": "首次 assemble 用 prepare 返回的当前模式 systemPrompt",
+			"patch.88": "去掉 renderPrompt 后的挂针，注入只走 assemble",
 			"patch.75": "回退把已完成任务收回成未开始",
 			"patch.76": "unrestricted 预设去掉身份句",
 			"patch.77": "回退标记到达时丢弃已发送消息",
@@ -441,10 +445,10 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"rewind.busy": "回退中…",
 			"rewind.empty": "没有可回退的上一句",
 			"rewind.fail": "回退失败: {error}",
-			"rewind.once": "回退一次",
-			"rewind.once.hint": "把这一轮发出去的那句放回输入框，并清掉这一轮",
+			"rewind.once": "回退上一步",
+			"rewind.once.hint": "撤回最后一步已进行的对话，新会话接上之前的上下文；那句回到输入框再发送",
 			"rewind.round": "回退上一轮",
-			"rewind.round.hint": "把这一轮发出去的那句放回输入框；子代理也只撤这一轮",
+			"rewind.round.hint": "撤回上一整轮（含子代理）已进行的对话，新会话接上之前的上下文；那句回到输入框再发送",
 			"hooksDeny.title": "Hooks 拦截",
 			"hooksDeny.bypass": "放行 hooks 的 deny / ask（补丁 30 / 31 / 64 / 65）",
 			"hooksDeny.hint": "关掉后，用户自己的 PreToolUse / UserPromptSubmit / Stop hook 的 deny 会按官方逻辑生效。官方 ask 分支本身是空操作，关开关不会弹出审批框。改完后点「应用」并重启才写进宿主。",
@@ -4038,20 +4042,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
-    }).then(async (res) => {
-      const text = await res.text().catch(() => '')
-      let data = null
-      try { data = text ? JSON.parse(text) : null } catch {
-        return { ok: false, error: res.status + ' non-json: ' + String(text).slice(0, 120) }
-      }
-      if (!res.ok) {
-        return Object.assign({}, data || {}, {
-          ok: false,
-          error: (data && (data.error || data.message)) || (res.status + ' ' + res.statusText),
-        })
-      }
-      return data
-    })
+    }).then((res) => res.json())
 
     let ui = { open: true, tab: 'assets' }
     const subs = new Set()
@@ -5571,8 +5562,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
           a.href = url
           a.download = 'report-' + String(label || 'score').replace(/[^\w.\-]/g, '_') + '.md'
           a.click()
-          /* 立刻 revoke 会在部分浏览器里让 click 启动的下载断流,延后一拍 */
-          setTimeout(() => { try { URL.revokeObjectURL(url) } catch { /* ignore */ } }, 1000)
+          URL.revokeObjectURL(url)
           setMsg({ ok: '已下载：' + label })
         } catch (e) { setMsg({ err: '下载失败：' + ((e && e.message) || e) }) }
       }
@@ -7167,17 +7157,6 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
       const [open, setOpen] = React.useState(false)
       const [msg, setMsg] = React.useState(null)
       const [countdown, setCountdown] = React.useState(0)
-      const countdownRef = React.useRef(null)
-      const clearCountdown = React.useCallback(() => {
-        if (countdownRef.current) { try { clearInterval(countdownRef.current) } catch { /* ignore */ } }
-        countdownRef.current = null
-      }, [])
-      React.useEffect(() => () => clearCountdown(), [clearCountdown])
-      const closeModal = React.useCallback(() => {
-        clearCountdown()
-        setCountdown(0)
-        setOpen(false)
-      }, [clearCountdown])
 
       const check = (silent) => {
         if (!silent) setBusy(true)
@@ -7208,10 +7187,9 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
           setMsg({ ok: '已安装 ' + (r.installed || '') + '，正在重启当前宿主…' })
           /* 重启会断开这个页面：倒计时提示用户稍后刷新 */
           setCountdown(6)
-          clearCountdown()
-          countdownRef.current = setInterval(() => {
+          const t = setInterval(() => {
             setCountdown((n) => {
-              if (n <= 1) { clearCountdown(); window.location.reload(); return 0 }
+              if (n <= 1) { clearInterval(t); window.location.reload(); return 0 }
               return n - 1
             })
           }, 1000)
@@ -7243,7 +7221,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
               title: '重新检查 npm 上的最新版本',
             }, busy ? '检查中…' : '检查更新'),
         open
-          ? h('div', { className: 'rt-modal', 'aria-hidden': 'true', onClick: closeModal },
+          ? h('div', { className: 'rt-modal', 'aria-hidden': 'true', onClick: () => setOpen(false) },
               h('div', { className: 'rt-modal-box', onClick: (e) => e.stopPropagation() },
                 h('h4', { style: { marginTop: 0 } }, '更新 RedTeam 模式'),
                 h('div', { className: 'rt-kv' }, h('b', null, '当前版本'), h('span', null, current || '未知')),
@@ -7269,7 +7247,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
                   ? h('div', { className: 'rt-foot' }, '宿主正在重启，' + countdown + ' 秒后自动刷新页面…')
                   : null,
                 h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 } },
-                  h('button', { className: 'rt-btn', onClick: closeModal }, '关闭'),
+                  h('button', { className: 'rt-btn', onClick: () => setOpen(false) }, '关闭'),
                   h('button', {
                     className: 'rt-btn rt-btn-primary',
                     disabled: busy || blockers.length > 0 || mode === 'dev',
@@ -8091,8 +8069,9 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 				}
 			} catch { /* ignore */ }
 			try {
+				const zhRedTeamLabel = String.fromCharCode(0x7ea2, 0x961f);
 				const labels = document.querySelectorAll(
-					"[class*='label' i][class*='preset' i], [class*='presetLabel' i], [title*='红队'], [title*='RedTeam']"
+					"[class*='label' i][class*='preset' i], [class*='presetLabel' i], [title*='" + zhRedTeamLabel + "], [title*='Red team' i], [title*='RedTeam' i]"
 				);
 				for (const el of labels) {
 					const text = String(el.textContent || "").trim();
@@ -8199,10 +8178,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 					if (!shell || patched.has(shell)) return;
 					if (typeof shell.submit !== "function") return;
 					const origSubmit = shell.submit;
-					const origActionsSubmit = (shell.actions && typeof shell.actions.submit === "function")
-						? shell.actions.submit
-						: null;
-					patched.set(shell, { origSubmit, origActionsSubmit });
+					patched.set(shell, { origSubmit });
 					patchedShells.push(shell);
 					const bound = origSubmit.bind(shell);
 					shell.submit = function gatedSubmit(mode) {
@@ -8211,9 +8187,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 						} catch { /* 门禁异常时不吞掉发送 */ }
 						return bound(mode);
 					};
-					if (shell.actions && typeof shell.actions === "object") {
-						shell.actions.submit = () => shell.submit("queue");
-					}
+
 				};
 				const tick = () => {
 					try {
@@ -8231,9 +8205,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 						const info = patched.get(shell);
 						if (!info) continue;
 						try { shell.submit = info.origSubmit; } catch { /* ignore */ }
-						if (info.origActionsSubmit && shell.actions) {
-							try { shell.actions.submit = info.origActionsSubmit; } catch { /* ignore */ }
-						}
+
 					}
 					patchedShells.length = 0;
 				};

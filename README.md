@@ -4,7 +4,7 @@
 
 <h1 align="center">⚔️ DeepSeek Harness cybersecurity red-team tool (dsh-purge)</h1>
 
-<p align="center"><strong>Version 1.1.71</strong></p>
+<p align="center"><strong>Version 1.1.78</strong></p>
 
 <p align="center">
   <em>DeepSeek Harness jailbreak: every model, swap prompts per model. Default prompt for 小码酱. Please star ⭐ If you build on this, see Attribution required.</em>
@@ -160,9 +160,10 @@ WeChat name **「老张的ai科技」**, same handle as the live-room viewer boa
 
 ## Supported hosts
 
-The latest plugin supports **dsh 0.2** only — do not apply it to 0.1.x.
+**1.1.78 targets DSH 0.2.1-rc.2.** 0.2.0 still works. Do not apply it to 0.1.x.
 
-- **dsh 0.2** (official desktop **0.2.0-rc.2** / official `dsh web`): use **1.1.40** or newer. This page installs that line.
+- **dsh 0.2.1-rc.2** (official desktop / official `dsh web`): use **1.1.78**. Fixes `{{cwd}}` / `[cwd]` crash, patch #40 match, dropped `toolFilter`, host `dsh-tools` resolve, hostFs fd, desktop helper self-kill, `file:` archive update, Ctrl+Enter steer.
+- **dsh 0.2.0-rc.2**: use **1.1.40** or newer; this line also installs.
 - **dsh 0.1.7** (incl. rc.1 / rc.2): use **1.1.39** or older — pick the tag on [Releases](https://github.com/YuJunZhiXue/dsh-purge/releases).
 
 Unmatched patches stay pending or skipped; nothing is rewritten blindly.
@@ -171,37 +172,64 @@ Unmatched patches stay pending or skipped; nothing is rewritten blindly.
 
 ## Install
 
-Web and the official desktop EXE are the two maintained hosts. **Install both. Apply each separately.** A Web install does not reach the desktop app, and a desktop install does not reach Web.
+Follow the three steps below. **Do not use the plugin marketplace.** One-click install on [dsh-plugin.org](https://dsh-plugin.org) or in Settings → Plugin Market fails with `already queued: dsh-purge` and never runs a command. The name `dsh-purge` is not on the npm registry; do not `pnpm add dsh-purge`. If this machine only has pnpm, use the pnpm URL in step 2.
 
-**Web (official `dsh web`)**
+### 1. Which host are you running?
+
+Official `dsh web` and the official desktop EXE are installed and patched **separately**. Only install into the host you actually open.
+
+| What you run | Profile | Command |
+|---|---|---|
+| Official `dsh web` | `web` | First command below |
+| Official desktop EXE | `desktop` | Second command below |
+
+### 2. Add it to the profile (`dsh` or pnpm-only)
+
+Use `codeload.github.com`. Do not use `github.com/.../archive`: that 302 makes pnpm fail with `fetch failed`.
+
+**If you have `dsh`:**
 
 ```sh
-dsh plugin --profile web add dsh-purge
+dsh plugin --profile web add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
 ```
 
-**Desktop (official EXE)**
+Use `desktop` instead of `web` for the EXE. If this directory is already a clone, use `.` instead of the URL.
+
+**pnpm only (no `dsh` required):** run this inside the profile you actually use, not the repo root.
 
 ```sh
-dsh plugin --profile desktop add dsh-purge
+cd "$DSH_HOME/profiles/web"    # desktop: profiles/desktop
+pnpm add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
 ```
 
-If this directory is already a clone, use `add .` instead of the package name. If `dsh` is not on PATH, use [Manual install](#manual). Registry blocked: add `https://github.com/YuJunZhiXue/dsh-purge/archive/refs/heads/master.tar.gz` with the same `--profile`.
+Windows PowerShell:
 
-Hub one-click on [dsh-plugin.org](https://dsh-plugin.org/plugins/yujunzhixue/dsh-purge) searches npm for this repository and installs `dsh-purge`. The catalog line may still show `github:` — use the command above if the button falls back to git.
+```powershell
+cd "$env:USERPROFILE\.dsh\profiles\web"   # desktop: profiles\desktop
+pnpm add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
+```
 
-For the desktop client you can also click the button (`dsh://` deep link):
+`pnpm add` and `dsh plugin add` fetch the package; `postinstall` writes `dsh-purge` into `dsh.profile.bundles` and adds a body `insert` in the profile `cordis.patch.yml`. Without that insert the host never loads the plugin and no button appears. pnpm 11 may skip install scripts (`ERR_PNPM_IGNORED_BUILDS`); if you also passed `--ignore-scripts`, run:
+
+```sh
+node node_modules/dsh-purge/scripts/ensure-profile-bundle.mjs
+```
+
+Success: `node_modules/dsh-purge/package.json` exists, `"dsh-purge"` is in that profile's `bundles`, and `cordis.patch.yml` has an `id: dsh-purge` insert. If neither `dsh` nor pnpm is available, use [Manual install](#manual).
+
+For the desktop client you can also click the button (`dsh://` deep link; it still downloads the same tarball):
 
 <p align="center">
-  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.71&repo=YuJunZhiXue%2Fdsh-purge&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fgithub.com%2FYuJunZhiXue%2Fdsh-purge%2Farchive%2Frefs%2Fheads%2Fmaster.tar.gz"><strong>Install in desktop client</strong></a>
+  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.78&repo=YuJunZhiXue%2Fdsh-purge&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fcodeload.github.com%2FYuJunZhiXue%2Fdsh-purge%2Ftar.gz%2Frefs%2Fheads%2Fmaster"><strong>Install in desktop client</strong></a>
 </p>
 
-### After the command: three steps
+### 3. Three more clicks after the command
 
 Adding the plugin to a profile does **not** patch `@deepseek-ai` by itself.
 
-1. **Quit and reopen** the host you installed into — stop and restart `dsh web`, or quit the desktop tray and reopen that app.
-2. On **that host**, click **dsh-purge** beside the session title, then **Apply** on the **Clean** page. It is not on the host Settings page.
-3. A successful **Apply** restarts once so patches load. It does not restart if it did not finish.
+1. **Fully quit and reopen** the host you just installed into. Web: stop `dsh web` and start it again. Desktop: quit the tray icon too, then open the exe.
+2. On **that host**, click **dsh-purge** beside the session title, open **Clean**, and click **Apply**. It is not on the host Settings page.
+3. A successful **Apply** restarts once. It does not restart if it did not finish.
 
 Web controls affect Web only; desktop controls affect the desktop app only. Do not Apply one host from the other.
 
@@ -211,32 +239,45 @@ Web controls affect Web only; desktop controls affect the desktop app only. Do n
 - `/purge status` in chat prints `DSH_HOME` and the patch list — the path should be the home you actually run.
 - Optional packages that are not installed (liangshen) show as skipped and do not block Apply.
 
-### Hand this to an assistant
+If the button is missing, run `dsh --dump-config` (or `dsh --profile desktop --dump-config`) and look for a body row `id: dsh-purge` (not `dsh-purge-redteam`). If it is absent, run `ensure-profile-bundle.mjs` above, then fully quit and reopen the host. After this version, a live red-team child entry also writes the missing insert on startup — quit and reopen once more. `entry "redteam-store" not found` at the top is leftover from an old red-team package and can be ignored.
 
-Paste the block below to a local assistant. It should only run the install command — no disk scan, no other edits, no Apply, no restart.
+### If the market says `already queued: dsh-purge`
+
+Stop clicking the market. Use `dsh plugin add` or pnpm from step 2 again. If the CLI also says it is already there:
+
+```sh
+dsh plugin --profile desktop remove dsh-purge
+dsh plugin --profile desktop add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
+```
+
+pnpm only:
+
+```sh
+cd "$DSH_HOME/profiles/desktop"
+pnpm remove dsh-purge
+pnpm add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
+```
+
+Use `web` instead of `desktop` for Web. Then run step 3.
+
+### Have an agent install it
+
+Paste this whole block to a local coding assistant. It only runs the install command: do not search the whole drive, do not touch other files, do not click Apply, do not restart. Do not use the plugin market, and do not use `github:yujunzhixue/dsh-purge`.
 
 <details>
-<summary><strong>For AI assistants (install only)</strong></summary>
+<summary><strong>For an AI agent (install only)</strong></summary>
 
 <!-- AI-AGENT-START -->
 
-Install the DeepSeek Harness plugin `dsh-purge` into both the Web profile and the official desktop profile. Do not scan the whole disk, do not read or edit other files, do not apply settings, and do not restart the app.
-
-If `dsh` is not on PATH, tell the user and stop. If this directory is already a clone, use `.` instead of the package name in both commands. If the npm registry is blocked, use `https://github.com/YuJunZhiXue/dsh-purge/archive/refs/heads/master.tar.gz`. If one profile is missing, skip that command and still install the other.
+Install the DeepSeek Harness plugin `dsh-purge` into the Web profile only. Do not search the whole drive, do not read or edit other files, do not apply settings, and do not restart the app. Do not install into the desktop profile. Do not use the plugin market, and do not use `github:yujunzhixue/dsh-purge`.
 
 **Web (official `dsh web`)**
 
 ```sh
-dsh plugin --profile web add dsh-purge
+dsh plugin --profile web add https://codeload.github.com/YuJunZhiXue/dsh-purge/tar.gz/refs/heads/master
 ```
 
-**Desktop (official EXE)**
-
-```sh
-dsh plugin --profile desktop add dsh-purge
-```
-
-After the commands finish, tell the user to fully quit and restart `dsh web`, and to quit the desktop tray then reopen the EXE. On each host, open **dsh-purge** beside the session title and **Apply** on **Clean**. Then stop.
+When done, tell the user to fully quit and restart `dsh web`, click **dsh-purge** beside the session title, and click **Apply** on Clean. Then stop.
 
 <!-- AI-AGENT-END -->
 
@@ -406,6 +447,10 @@ dsh-purge --edit
 /rules list | use <id> | create <id> | delete <id> | reset | help
 /skills list | import <zip-or-folder> | create <id> [description] | delete <id> | help
 /rewind
+
+# If another plugin already owns /rewind (or /purge, /rules, /skills), that
+# name is skipped or remounted as /purge-rewind. Other commands, tools, and
+# /dsh-purge/* routes keep working.
 
 purge_status   purge_apply   purge_revert
 ```

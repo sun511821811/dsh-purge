@@ -425,6 +425,7 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"patch.86": "队列插话走 steer；公共 steer() 保持下一步",
 			"patch.87": "首次 assemble 用 prepare 返回的当前模式 systemPrompt",
 			"patch.88": "去掉 renderPrompt 后的挂针，注入只走 assemble",
+			"patch.89": "openai-responses 流中断时降级为完成，消除 Response incomplete: interrupted (PI_AI_ERROR)",
 			"patch.75": "回退把已完成任务收回成未开始",
 			"patch.76": "unrestricted 预设去掉身份句",
 			"patch.77": "回退标记到达时丢弃已发送消息",

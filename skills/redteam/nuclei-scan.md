@@ -26,40 +26,64 @@ enabled: true
 
 **更新模板**：`nuclei -update-templates`（频率不超过每周一次；更新后先跑 `-tl` 确认没坏）。
 
-## 基本用法
+## 核心法则：精准打击 vs 盲目全量（为什么别人能打通而 Nuclei 0 命中？）
+
+很多时候"别人脚本能利用成功，Nuclei 却一无所获"，根因有三：
+1. **缺少 `-fr`（跟进重定向）**：目标常有 http→https、加斜杠或跳转登录页。未加 `-fr` 时 Nuclei 停在 301/302，响应与 Matcher 错位，直接判定不匹配；
+2. **User-Agent 触发 WAF 阻断**：Nuclei 默认带 `Nuclei - Open-source...` 头，绝大多数国内 WAF / 宝塔 / 阿里云直接 403 阻断；
+3. **全量盲轰导致 IP 被封**：对多目标直接跑几千个模板，瞬间发包数万，前 10 秒即触发频控拉黑，后续全部白跑。
+
+**正解：指纹识别先行 → 定向模板投掷（Targeted Precision Scan）**。
+
+## 必带的「黄金参数组合」
+
+每次执行 nuclei，**必须带上以下五大保障参数**：
+- `-fr` (`--follow-redirects`)：**必须带**。跟进 301/302，避免跳转导致 Matcher 假阴性；
+- `-insecure`：忽略自签证书、域名与 SNI 不匹配错误；
+- `-H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"`：伪装正常浏览器，规避 WAF 的 Scanner UA 拦截；
+- `-mhe 30`：避免目标有少量 403/超时就被 nuclei 判定为 Dead Host 而跳过整站；
+- `-include-rr` (`-irr`)：落库 JSONL 中包含完整请求与响应报文，供 `redteam_http_evidence_add` 直取。
+
+## 推荐命令模版
 
 ```bash
-# 1) 单目标快速体检（先看会命中什么，不实际打）
-nuclei -u https://target.example.com -severity critical,high,medium -rl 30 -c 15
+# 1) 定向单模板验证（最精准！用于已知组件/CVE精确打击）
+nuclei -u https://target.example.com \
+  -t http/cves/2024/CVE-2024-xxxx.yaml \
+  -fr -insecure \
+  -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" \
+  -v -jsonl -o runs/nuclei-hit.jsonl
 
-# 2) 批量：从资产库导出的存活 URL 清单
-nuclei -l runs/alive-urls.txt -severity critical,high -rl 50 -c 25 \
-  -jsonl -o runs/nuclei-$(date +%m%d-%H%M).jsonl
+# 2) 针对已知 CMS / 组件（如 WordPress 插件、Weblogic、Nacos）
+nuclei -u https://target.example.com \
+  -tags wordpress,wp-plugin \
+  -severity critical,high,medium \
+  -fr -insecure \
+  -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" \
+  -rl 20 -c 10 -mhe 30 -duc \
+  -include-rr -jsonl -o runs/nuclei-wp.jsonl
 
-# 3) 指定模板（已知组件版本 → 精确打击，命中率高、噪声小）
-nuclei -u http://target:8080 -t http/cves/2021/CVE-2021-44228.yaml
-nuclei -u http://target -t http/exposures/ -t http/default-logins/
-
-# 4) 按标签（tags）批量
-nuclei -l runs/alive-urls.txt -tags seeyon,weaver,panel,exposure -rl 20
-
-# 5) 只列出会跑的模板（不发包，先评估覆盖面）
-nuclei -l runs/alive-urls.txt -tags cve -tl
+# 3) 多目标存活 URL 批量排查（控制并发，避免打死）
+nuclei -l runs/alive-urls.txt \
+  -tags cve,exposure,default-login \
+  -severity critical,high \
+  -fr -insecure \
+  -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" \
+  -rl 25 -c 10 -timeout 8 -mhe 30 -duc \
+  -include-rr -jsonl -o runs/nuclei-$(date +%m%d-%H%M).jsonl
 ```
 
-## 关键参数（本场景常用）
+## 关键参数速查表
 
-| 参数 | 作用 | 建议 |
-| --- | --- | --- |
-| `-rl` | 每秒请求上限 | 互联网侧 30–50；被 WAF 盯上后降到 5 |
-| `-c` | 并发模板数 | 15–25，过高会打崩小站 |
-| `-severity` | 只跑指定等级 | 演练只关心 `critical,high`（中低危不得分） |
-| `-tags` / `-t` | 模板筛选 | 有指纹线索时优先用，别全量轰 |
-| `-jsonl -o` | 结构化输出 | **必须落 `runs/`**，报告要引用 |
-| `-proxy` | 走代理 | 降噪用 `cn-proxy-pool`；**内网目标走 suo5 隧道加 `-proxy socks5://127.0.0.1:1080`** |
-| `-H` | 自定义头 | 带 Cookie/Token 测登录后功能点 |
-| `-duc` | 禁用模板更新检查 | 批量跑时省时间 |
-| `-stats -si 30` | 进度输出 | 长任务看进度 |
+| 参数 | 作用 | 必须性 | 说明 |
+| --- | --- | --- | --- |
+| `-fr` | 跟进 301/302 重定向 | **强制** | 消除 80% 的假阴性（漏报） |
+| `-insecure` | 跳过 SSL 证书校验 | **强制** | 防止自签证书 / IP 访问直接失败 |
+| `-H "User-Agent: ..."` | 浏览器 UA 伪装 | **强制** | 绕过 WAF 针对 nuclei 的指纹黑名单 |
+| `-mhe 30` | 最大主机错误容忍 | **强烈推荐** | 默认错误 5 次就弃用主机，需放宽 |
+| `-include-rr` | 结果带 HTTP 请求/响应 | **强烈推荐** | 自动产生落库所需 evidence |
+| `-rl 20` | 限速每秒请求数 | 推荐 | 防 CC/WAF 自动封 IP |
+| `-v` / `-debug` | 显示详细交互过程 | 调试必用 | 排查为什么没命中 |
 
 ## 与知识库的配合（先查再打，禁止重复劳动）
 
@@ -96,7 +120,7 @@ nuclei -l runs/alive-urls.txt -tags cve -tl
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| 一条不命中 | 目标不是 HTTP，或模板被 ignore | 加 `-tl` 看实际跑了哪些模板；确认协议 `-t http/` vs `network/` |
+| 一条不命中 | 1. 目标发生 301/302 重定向未跟进<br>2. 默认 UA 被 WAF 拦截（403）<br>3. 模板 Matcher 过于严苛（如要求 200 但实际 500 仍利用成功）<br>4. 路径未对齐（如 WP 装在 /wp/ 下） | 1. 务必加 `-fr` 与浏览器 UA；<br>2. 用 `curl -v` 或 `nuclei -debug` 手工看实际 HTTP 返回；<br>3. 若确认漏洞存在但 Nuclei Matcher 不匹配，**果断切到 Python / curl 验证**；<br>4. 检查是否需指定子路径目标 `-u http://target/wp/`。 |
 | 大量 `could not resolve` | URL 清单里有死链 | 先用 `pd-httpx` 过滤存活：`pd-httpx -l all.txt -o alive-urls.txt -silent` |
 | 命中一堆 low/info | severity 没限 | 演练加 `-severity critical,high,medium` |
 | 目标被打挂 | 并发过高 / 跑了 dos 模板 | 降 `-rl`/`-c`；确认 ignore 文件没被动过 |

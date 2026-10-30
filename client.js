@@ -8072,7 +8072,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 			try {
 				const zhRedTeamLabel = String.fromCharCode(0x7ea2, 0x961f);
 				const labels = document.querySelectorAll(
-					"[class*='label' i][class*='preset' i], [class*='presetLabel' i], [title*='" + zhRedTeamLabel + "], [title*='Red team' i], [title*='RedTeam' i]"
+					"[class*='label' i][class*='preset' i], [class*='presetLabel' i], [title*='" + zhRedTeamLabel + "'], [title*='Red team' i], [title*='RedTeam' i]"
 				);
 				for (const el of labels) {
 					const text = String(el.textContent || "").trim();

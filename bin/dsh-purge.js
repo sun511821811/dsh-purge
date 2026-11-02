@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../lib/socket-tos-fix.js";
 
 import * as core from "../lib/core.js";
 import * as rules from "../lib/rules.js";
